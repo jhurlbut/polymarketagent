@@ -1,11 +1,11 @@
 [phases.setup]
-nixPkgs = ["python311", "gcc", "libffi"]
+nixPkgs = ["python311", "gcc", "libffi", "openssl"]
 
 [phases.install]
-cmds = ["python -m venv /opt/venv", ". /opt/venv/bin/activate && pip install --upgrade pip"]
+cmds = ["python3.11 -m pip install --upgrade pip setuptools wheel"]
 
 [phases.build]
-cmds = [". /opt/venv/bin/activate && pip install -r agents/requirements.txt"]
+cmds = ["python3.11 -m pip install -r agents/requirements.txt"]
 
 [start]
-cmd = "cd agents && python run_continuous.py --interval 15"
+cmd = "cd agents && python3.11 run_continuous.py --interval 15"
