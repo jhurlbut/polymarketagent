@@ -1,5 +1,5 @@
-# Use Python 3.11 slim image
-FROM python:3.11-slim
+# Use Python 3.10 slim image (compatible with pysha3)
+FROM python:3.10-slim
 
 # Set working directory
 WORKDIR /app
