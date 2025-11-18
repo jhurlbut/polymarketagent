@@ -28,7 +28,21 @@ class Config:
     TWITTER_BEARER_TOKEN: Optional[str] = os.getenv("TWITTER_BEARER_TOKEN")
 
     # Database Configuration
-    DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///polymarket_trading.db")
+    @staticmethod
+    def get_database_url() -> str:
+        """
+        Get database URL with proper format handling.
+        Converts postgres:// to postgresql:// for SQLAlchemy compatibility.
+        """
+        db_url = os.getenv("DATABASE_URL", "sqlite:///polymarket_trading.db")
+
+        # Fix Heroku/Railway Postgres URL format
+        if db_url.startswith("postgres://"):
+            db_url = db_url.replace("postgres://", "postgresql://", 1)
+
+        return db_url
+
+    DATABASE_URL: str = get_database_url.__func__()
 
     # Trading Configuration
     PAPER_TRADING_MODE: bool = os.getenv("PAPER_TRADING_MODE", "true").lower() == "true"

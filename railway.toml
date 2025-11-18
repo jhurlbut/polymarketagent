@@ -1,0 +1,7 @@
+[build]
+builder = "NIXPACKS"
+
+[deploy]
+startCommand = "cd agents && python run_continuous.py --interval 15"
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 10
