@@ -1,5 +1,11 @@
 [phases.setup]
-nixPkgs = ["python311"]
+nixPkgs = ["python311", "gcc", "libffi"]
 
 [phases.install]
-cmds = ["pip install -r requirements.txt"]
+cmds = ["python -m venv /opt/venv", ". /opt/venv/bin/activate && pip install --upgrade pip"]
+
+[phases.build]
+cmds = [". /opt/venv/bin/activate && pip install -r agents/requirements.txt"]
+
+[start]
+cmd = "cd agents && python run_continuous.py --interval 15"
