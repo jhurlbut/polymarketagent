@@ -10,6 +10,8 @@ RUN apt-get update && apt-get install -y \
     g++ \
     libffi-dev \
     libssl-dev \
+    python3-dev \
+    make \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy the entire project
