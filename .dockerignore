@@ -1,0 +1,53 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# Environment files
+.env
+*.env
+!.env.example
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+polymarket_trading.db
+
+# Logs
+*.log
+logs/
+continuous_trading.log
+polymarket_trading.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Git
+.git/
+.gitignore
+
+# Cache
+.cache/
+*.cache
+
+# Documentation (not needed in container)
+*.md
+!README.md
+
+# Config files not needed in container
+.claude/
+.github/
