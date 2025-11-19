@@ -432,7 +432,9 @@ def main():
         st.info("No strategy performance data available")
 
     # Whale Tracking Section (if enabled)
-    if config.WHALE_TRACKING_ENABLED:
+    # Read directly from env to handle Streamlit Cloud deployment
+    whale_tracking_enabled = os.getenv("WHALE_TRACKING_ENABLED", "false").lower() == "true"
+    if whale_tracking_enabled or getattr(config, 'WHALE_TRACKING_ENABLED', False):
         st.markdown("---")
         st.header("🐋 Whale Tracking")
 
