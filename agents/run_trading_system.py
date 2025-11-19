@@ -168,7 +168,7 @@ def start_whale_discovery_background():
     if not config.WHALE_TRACKING_ENABLED:
         return
 
-    logger.info("Starting whale discovery service in background...")
+    print("Starting whale discovery service in background...")
 
     import threading
     from agents.application.whale.auto_discovery import start_whale_discovery_service
@@ -184,7 +184,7 @@ def start_whale_discovery_background():
     )
 
     discovery_thread.start()
-    logger.info("✓ Whale discovery service running in background")
+    print("✓ Whale discovery service running in background")
 
 
 def run_system(strategy_name: Optional[str] = None, test_mode: bool = False):
