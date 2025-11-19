@@ -173,6 +173,31 @@ class GammaMarketClient:
             }
         )
 
+    def get_all_clob_tradable_markets(self, limit=100) -> "list[Market]":
+        """
+        Get ALL tradeable markets using pagination.
+        Fetches markets in batches until all are retrieved.
+        """
+        offset = 0
+        all_markets = []
+        while True:
+            params = {
+                "active": True,
+                "closed": False,
+                "archived": False,
+                "limit": limit,
+                "offset": offset,
+                "enableOrderBook": True,
+            }
+            market_batch = self.get_markets(querystring_params=params)
+            all_markets.extend(market_batch)
+
+            if len(market_batch) < limit:
+                break
+            offset += limit
+
+        return all_markets
+
     def get_market(self, market_id: int) -> dict():
         url = self.gamma_markets_endpoint + "/" + str(market_id)
         print(url)

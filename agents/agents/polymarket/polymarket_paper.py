@@ -39,13 +39,14 @@ class PolymarketPaper:
 
     def get_all_tradeable_markets(self) -> List[SimpleMarket]:
         """
-        Get all tradeable markets from Polymarket.
+        Get all tradeable markets from Polymarket using pagination.
+        Fetches ALL markets, not just the first 100.
 
         Returns:
             List of SimpleMarket objects
         """
         try:
-            markets = self.gamma_client.get_clob_tradable_markets()
+            markets = self.gamma_client.get_all_clob_tradable_markets()
             self.logger.info(f"Retrieved {len(markets)} tradeable markets")
             return markets
         except Exception as e:
