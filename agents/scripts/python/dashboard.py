@@ -191,15 +191,16 @@ def main():
         )
 
         # Save button
-        if st.button("💾 Save Settings", type="primary"):
+        if st.button("💾 Save Settings & Scan Now", type="primary"):
             db.update_strategy_settings(
                 strategy_name="endgame_sweep",
                 endgame_min_price=min_price,
                 endgame_max_price=max_price,
                 endgame_max_hours_to_settlement=max_hours,
-                endgame_min_confidence=min_confidence
+                endgame_min_confidence=min_confidence,
+                trigger_scan=True  # Request immediate scan
             )
-            st.success("✓ Settings saved! Backend will use new criteria on next scan.")
+            st.success("✓ Settings saved! Backend will scan immediately (within 10s).")
             st.rerun()
 
         st.markdown("---")

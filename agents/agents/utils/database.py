@@ -208,6 +208,9 @@ class StrategySettings(Base):
     enabled = Column(Boolean, nullable=False, default=True)
     min_profit_threshold_pct = Column(Float, nullable=True, default=0.3)
 
+    # Scan trigger
+    scan_requested = Column(Boolean, nullable=False, default=False)
+
     # Timestamps
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -432,6 +435,7 @@ class DatabaseManager:
         endgame_min_confidence: Optional[float] = None,
         enabled: Optional[bool] = None,
         min_profit_threshold_pct: Optional[float] = None,
+        trigger_scan: bool = False,
     ) -> StrategySettings:
         """Update or create strategy settings."""
         session = self.get_session()
@@ -459,10 +463,31 @@ class DatabaseManager:
             if min_profit_threshold_pct is not None:
                 settings.min_profit_threshold_pct = min_profit_threshold_pct
 
+            # Set scan trigger if requested
+            if trigger_scan:
+                settings.scan_requested = True
+
             settings.updated_at = datetime.utcnow()
             session.commit()
             session.refresh(settings)
             return settings
+        finally:
+            session.close()
+
+    def check_scan_requested(self, strategy_name: str = "endgame_sweep") -> bool:
+        """Check if a manual scan was requested and clear the flag."""
+        session = self.get_session()
+        try:
+            settings = session.query(StrategySettings).filter(
+                StrategySettings.strategy_name == strategy_name
+            ).first()
+
+            if settings and settings.scan_requested:
+                # Clear the flag
+                settings.scan_requested = False
+                session.commit()
+                return True
+            return False
         finally:
             session.close()
 

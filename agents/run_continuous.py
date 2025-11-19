@@ -14,6 +14,7 @@ import logging
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from run_trading_system import run_system
+from agents.utils.database import db
 
 # Setup logging
 logging.basicConfig(
@@ -59,7 +60,8 @@ def run_continuous(interval_minutes: int = 15):
             except Exception as e:
                 logger.error(f"✗ Scan #{scan_count} failed: {e}", exc_info=True)
 
-            # Wait for next scan
+            # Wait for next scan (check for manual triggers every 10 seconds)
+            wait_seconds = interval_minutes * 60
             next_scan = datetime.now()
             next_scan = next_scan.replace(
                 minute=(next_scan.minute + interval_minutes) % 60,
@@ -67,11 +69,20 @@ def run_continuous(interval_minutes: int = 15):
                 microsecond=0
             )
 
-            wait_seconds = interval_minutes * 60
             logger.info(f"\nNext scan in {interval_minutes} minutes ({next_scan.strftime('%H:%M:%S')})")
-            logger.info("Waiting...\n")
+            logger.info("Waiting... (checking for manual triggers every 10s)\n")
 
-            time.sleep(wait_seconds)
+            # Wait in chunks to allow checking for manual scan requests
+            elapsed = 0
+            check_interval = 10  # Check every 10 seconds
+            while elapsed < wait_seconds:
+                time.sleep(min(check_interval, wait_seconds - elapsed))
+                elapsed += check_interval
+
+                # Check if manual scan was requested from dashboard
+                if db.check_scan_requested():
+                    logger.info("🔔 Manual scan requested from dashboard - running immediate scan!")
+                    break
 
     except KeyboardInterrupt:
         logger.info("\n" + "=" * 70)
