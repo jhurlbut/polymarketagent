@@ -351,12 +351,12 @@ class PolymarketWhaleDiscovery:
             from agents.polymarket.polymarket_paper import PolymarketPaper
             polymarket = PolymarketPaper()
 
-            markets = polymarket.get_all_tradeable_markets()
+            # Use limited fetch to avoid API rate limiting
+            # The API returns markets sorted by activity, so first N are most active
+            markets = polymarket.get_tradeable_markets(limit=limit)
             logger.info(f"Found {len(markets)} active markets")
 
-            # Note: Volume filtering skipped as market data doesn't include volume24hr field
-            # Instead, we'll scan first N markets which are typically the most active
-            markets_to_scan = markets[:limit]
+            markets_to_scan = markets
 
             logger.info(
                 f"Scanning {len(markets_to_scan)} markets for whale activity"

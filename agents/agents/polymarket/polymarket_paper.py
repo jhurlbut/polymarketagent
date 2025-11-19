@@ -37,10 +37,32 @@ class PolymarketPaper:
         """
         return 10000.0
 
+    def get_tradeable_markets(self, limit: int = 100) -> List[SimpleMarket]:
+        """
+        Get tradeable markets from Polymarket with a limit.
+        Fetches only the specified number of markets to avoid rate limiting.
+
+        Args:
+            limit: Maximum number of markets to fetch (default: 100)
+
+        Returns:
+            List of SimpleMarket objects
+        """
+        try:
+            markets = self.gamma_client.get_clob_tradable_markets(limit=limit)
+            self.logger.info(f"Retrieved {len(markets)} tradeable markets (limit={limit})")
+            return markets
+        except Exception as e:
+            self.logger.error(f"Error fetching markets: {e}")
+            return []
+
     def get_all_tradeable_markets(self) -> List[SimpleMarket]:
         """
         Get all tradeable markets from Polymarket using pagination.
         Fetches ALL markets, not just the first 100.
+
+        WARNING: This method makes many API requests and may trigger rate limiting.
+        Consider using get_tradeable_markets(limit) instead for whale discovery.
 
         Returns:
             List of SimpleMarket objects
