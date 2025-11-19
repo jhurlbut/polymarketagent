@@ -69,7 +69,7 @@ class Config:
 
     NEWS_TRADING_MAX_REACTION_TIME_SECONDS: int = int(os.getenv("NEWS_TRADING_MAX_REACTION_TIME_SECONDS", "30"))
 
-    # Whale Following Strategy
+    # Whale Following Strategy Configuration
     WHALE_TRACKING_ENABLED: bool = os.getenv("WHALE_TRACKING_ENABLED", "false").lower() == "true"
     WHALE_MIN_VOLUME_USD: float = float(os.getenv("WHALE_MIN_VOLUME_USD", "50000"))
     WHALE_MIN_QUALITY_SCORE: float = float(os.getenv("WHALE_MIN_QUALITY_SCORE", "0.70"))
