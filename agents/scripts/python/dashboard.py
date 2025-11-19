@@ -21,7 +21,7 @@ import os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
 from agents.utils.config import config
-from agents.utils.database import db, Trade
+from agents.utils.database import db, Trade, StrategySettings
 from agents.application.analytics import PerformanceAnalyzer
 
 
@@ -132,6 +132,75 @@ def main():
             "Strategy",
             ["All Strategies", "endgame_sweep", "multi_option_arb", "market_maker"]
         )
+
+        st.markdown("---")
+
+        # Strategy Configuration
+        st.subheader("⚙️ Strategy Settings")
+        st.caption("Adjust endgame sweep criteria")
+
+        # Get current settings from database
+        settings = db.get_strategy_settings("endgame_sweep")
+        if not settings:
+            # Initialize with defaults if not exists
+            settings = db.update_strategy_settings("endgame_sweep")
+
+        # Price Range
+        st.write("**Price Range**")
+        col_min, col_max = st.columns(2)
+        with col_min:
+            min_price = st.number_input(
+                "Min Price",
+                min_value=0.0,
+                max_value=1.0,
+                value=float(settings.endgame_min_price),
+                step=0.01,
+                format="%.2f",
+                help="Minimum market price (e.g., 0.85 = 85¢)"
+            )
+        with col_max:
+            max_price = st.number_input(
+                "Max Price",
+                min_value=0.0,
+                max_value=1.0,
+                value=float(settings.endgame_max_price),
+                step=0.01,
+                format="%.2f",
+                help="Maximum market price (e.g., 0.99 = 99¢)"
+            )
+
+        # Settlement Time
+        max_hours = st.slider(
+            "Max Hours to Settlement",
+            min_value=1,
+            max_value=168,  # 7 days
+            value=int(settings.endgame_max_hours_to_settlement),
+            step=1,
+            help="Maximum time until market settles (hours)"
+        )
+
+        # Confidence Threshold
+        min_confidence = st.slider(
+            "Min Confidence",
+            min_value=0.0,
+            max_value=1.0,
+            value=float(settings.endgame_min_confidence),
+            step=0.05,
+            format="%.0f%%",
+            help="Minimum confidence threshold (lower = more trades)"
+        )
+
+        # Save button
+        if st.button("💾 Save Settings", type="primary"):
+            db.update_strategy_settings(
+                strategy_name="endgame_sweep",
+                endgame_min_price=min_price,
+                endgame_max_price=max_price,
+                endgame_max_hours_to_settlement=max_hours,
+                endgame_min_confidence=min_confidence
+            )
+            st.success("✓ Settings saved! Backend will use new criteria on next scan.")
+            st.rerun()
 
         st.markdown("---")
 

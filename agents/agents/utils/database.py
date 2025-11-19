@@ -185,6 +185,37 @@ class Alert(Base):
         return f"<Alert(type={self.alert_type}, severity={self.severity}, title={self.title})>"
 
 
+class StrategySettings(Base):
+    """
+    Configurable strategy parameters.
+    Allows dynamic adjustment of strategy criteria through the dashboard.
+    """
+
+    __tablename__ = "strategy_settings"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+
+    # Strategy identification
+    strategy_name = Column(String(50), nullable=False, unique=True, index=True)
+
+    # Endgame Sweep Settings
+    endgame_min_price = Column(Float, nullable=True, default=0.95)
+    endgame_max_price = Column(Float, nullable=True, default=0.99)
+    endgame_max_hours_to_settlement = Column(Integer, nullable=True, default=24)
+    endgame_min_confidence = Column(Float, nullable=True, default=0.70)
+
+    # General Settings
+    enabled = Column(Boolean, nullable=False, default=True)
+    min_profit_threshold_pct = Column(Float, nullable=True, default=0.3)
+
+    # Timestamps
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def __repr__(self):
+        return f"<StrategySettings(strategy={self.strategy_name}, enabled={self.enabled})>"
+
+
 class DatabaseManager:
     """
     Manages database connections and provides utility methods.
@@ -378,6 +409,60 @@ class DatabaseManager:
             session.commit()
             session.refresh(alert)
             return alert
+        finally:
+            session.close()
+
+    def get_strategy_settings(self, strategy_name: str) -> Optional[StrategySettings]:
+        """Get settings for a specific strategy."""
+        session = self.get_session()
+        try:
+            settings = session.query(StrategySettings).filter(
+                StrategySettings.strategy_name == strategy_name
+            ).first()
+            return settings
+        finally:
+            session.close()
+
+    def update_strategy_settings(
+        self,
+        strategy_name: str,
+        endgame_min_price: Optional[float] = None,
+        endgame_max_price: Optional[float] = None,
+        endgame_max_hours_to_settlement: Optional[int] = None,
+        endgame_min_confidence: Optional[float] = None,
+        enabled: Optional[bool] = None,
+        min_profit_threshold_pct: Optional[float] = None,
+    ) -> StrategySettings:
+        """Update or create strategy settings."""
+        session = self.get_session()
+        try:
+            settings = session.query(StrategySettings).filter(
+                StrategySettings.strategy_name == strategy_name
+            ).first()
+
+            if not settings:
+                # Create new settings with defaults
+                settings = StrategySettings(strategy_name=strategy_name)
+                session.add(settings)
+
+            # Update provided fields
+            if endgame_min_price is not None:
+                settings.endgame_min_price = endgame_min_price
+            if endgame_max_price is not None:
+                settings.endgame_max_price = endgame_max_price
+            if endgame_max_hours_to_settlement is not None:
+                settings.endgame_max_hours_to_settlement = endgame_max_hours_to_settlement
+            if endgame_min_confidence is not None:
+                settings.endgame_min_confidence = endgame_min_confidence
+            if enabled is not None:
+                settings.enabled = enabled
+            if min_profit_threshold_pct is not None:
+                settings.min_profit_threshold_pct = min_profit_threshold_pct
+
+            settings.updated_at = datetime.utcnow()
+            session.commit()
+            session.refresh(settings)
+            return settings
         finally:
             session.close()
 

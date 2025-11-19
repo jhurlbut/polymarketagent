@@ -68,11 +68,31 @@ class EndgameSweepStrategy(TradingStrategy):
         self.max_price = max_price or config.ENDGAME_MAX_PRICE
         self.max_hours_to_settlement = max_hours_to_settlement or config.ENDGAME_MAX_TIME_TO_SETTLEMENT_HOURS
 
+        self.min_confidence = 0.70  # Default confidence threshold
+
         self.logger.info(
             f"Endgame Sweep initialized: "
             f"price range [{self.min_price}, {self.max_price}], "
             f"max settlement time {self.max_hours_to_settlement}h"
         )
+
+    def load_settings_from_db(self):
+        """Load latest settings from database, falling back to config defaults."""
+        try:
+            settings = db.get_strategy_settings("endgame_sweep")
+            if settings:
+                self.min_price = settings.endgame_min_price or config.ENDGAME_MIN_PRICE
+                self.max_price = settings.endgame_max_price or config.ENDGAME_MAX_PRICE
+                self.max_hours_to_settlement = settings.endgame_max_hours_to_settlement or config.ENDGAME_MAX_TIME_TO_SETTLEMENT_HOURS
+                self.min_confidence = settings.endgame_min_confidence or 0.70
+                self.logger.info(
+                    f"Loaded settings from database: "
+                    f"price [{self.min_price}, {self.max_price}], "
+                    f"settlement {self.max_hours_to_settlement}h, "
+                    f"confidence {self.min_confidence:.0%}"
+                )
+        except Exception as e:
+            self.logger.warning(f"Could not load settings from database, using defaults: {e}")
 
     def is_near_settlement(self, market: SimpleMarket) -> bool:
         """
@@ -185,6 +205,9 @@ class EndgameSweepStrategy(TradingStrategy):
         Returns:
             List of opportunities
         """
+        # Load latest settings from database
+        self.load_settings_from_db()
+
         self.logger.info("Scanning for endgame sweep opportunities...")
 
         opportunities = []
@@ -226,7 +249,7 @@ class EndgameSweepStrategy(TradingStrategy):
                             confidence = 1.0 - black_swan_risk
 
                             # Only proceed if confidence is high enough
-                            if confidence >= 0.7:
+                            if confidence >= self.min_confidence:
                                 opportunity = {
                                     "market_id": market.market_id,
                                     "market_question": getattr(market, 'question', 'Unknown'),
