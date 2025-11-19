@@ -16,6 +16,18 @@ from agents.utils.config import config
 
 Base = declarative_base()
 
+# Explicitly export all classes
+__all__ = [
+    'Base',
+    'Trade',
+    'MarketSnapshot',
+    'PerformanceMetric',
+    'Alert',
+    'StrategySettings',
+    'DatabaseManager',
+    'db'
+]
+
 
 class Trade(Base):
     """
