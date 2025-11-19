@@ -69,6 +69,18 @@ class Config:
 
     NEWS_TRADING_MAX_REACTION_TIME_SECONDS: int = int(os.getenv("NEWS_TRADING_MAX_REACTION_TIME_SECONDS", "30"))
 
+    # Whale Following Strategy
+    WHALE_TRACKING_ENABLED: bool = os.getenv("WHALE_TRACKING_ENABLED", "false").lower() == "true"
+    WHALE_MIN_VOLUME_USD: float = float(os.getenv("WHALE_MIN_VOLUME_USD", "50000"))
+    WHALE_MIN_QUALITY_SCORE: float = float(os.getenv("WHALE_MIN_QUALITY_SCORE", "0.70"))
+    WHALE_COPY_DELAY_SECONDS: int = int(os.getenv("WHALE_COPY_DELAY_SECONDS", "300"))  # 5 minutes
+    WHALE_MAX_POSITION_PCT: float = float(os.getenv("WHALE_MAX_POSITION_PCT", "8"))
+
+    # Polygon Blockchain (for whale monitoring)
+    POLYGON_WSS_URL: str = os.getenv("POLYGON_WSS_URL", "wss://polygon-rpc.com")
+    CTF_EXCHANGE_ADDRESS: str = "0x4bFb41d5B3570DeFd03C39a9A4D8dE6Bd8B8982E"  # Polymarket CTF Exchange
+    CTF_CONTRACT_ADDRESS: str = "0x4D97DCd97eC945f40cF65F87097ACe5EA0476045"  # Conditional Tokens Framework
+
     @classmethod
     def validate(cls) -> list[str]:
         """

@@ -24,6 +24,10 @@ __all__ = [
     'PerformanceMetric',
     'Alert',
     'StrategySettings',
+    'Whale',
+    'WhalePosition',
+    'WhaleTransaction',
+    'WhaleSignal',
     'DatabaseManager',
     'db'
 ]
@@ -229,6 +233,158 @@ class StrategySettings(Base):
 
     def __repr__(self):
         return f"<StrategySettings(strategy={self.strategy_name}, enabled={self.enabled})>"
+
+
+class Whale(Base):
+    """
+    Whale trader registry.
+    Tracks high-volume traders on Polymarket with performance metrics.
+    """
+
+    __tablename__ = "whales"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+
+    # Identification
+    address = Column(String(42), unique=True, nullable=False, index=True)
+    nickname = Column(String(100), nullable=True)
+
+    # Performance Metrics
+    total_volume_usd = Column(Numeric(15, 2), default=0)
+    total_trades = Column(Integer, default=0)
+    winning_trades = Column(Integer, default=0)
+    losing_trades = Column(Integer, default=0)
+    win_rate = Column(Float, default=0)  # Percentage (0-100)
+    avg_profit_per_trade = Column(Numeric(12, 2), default=0)
+    sharpe_ratio = Column(Float, nullable=True)
+    quality_score = Column(Float, default=0)  # 0-1 score
+
+    # Classification
+    whale_type = Column(String(20), default="neutral")  # smart_money, neutral, dumb_money
+    specialization = Column(String(50), nullable=True)  # politics, crypto, sports, etc.
+
+    # Tracking
+    is_tracked = Column(Boolean, default=False)
+    first_seen_at = Column(DateTime, default=datetime.utcnow)
+    last_activity_at = Column(DateTime, default=datetime.utcnow)
+
+    # Timestamps
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def __repr__(self):
+        return f"<Whale(address={self.address[:8]}..., quality={self.quality_score:.2f})>"
+
+
+class WhalePosition(Base):
+    """
+    Current whale positions in active markets.
+    Tracks open positions for monitored whales.
+    """
+
+    __tablename__ = "whale_positions"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+
+    # Whale reference
+    whale_address = Column(String(42), nullable=False, index=True)
+
+    # Market details
+    market_id = Column(String(100), nullable=False, index=True)
+    token_id = Column(String(100), nullable=True)
+    side = Column(String(10), nullable=False)  # YES or NO
+
+    # Position details
+    entry_price = Column(Numeric(10, 8), nullable=True)
+    current_price = Column(Numeric(10, 8), nullable=True)
+    position_size_usd = Column(Numeric(12, 2), nullable=False)
+    position_size_tokens = Column(Numeric(18, 8), nullable=True)
+
+    # Status
+    status = Column(String(20), default="open")  # open, closed, partially_closed
+    unrealized_pnl = Column(Numeric(12, 2), nullable=True)
+
+    # Timestamps
+    entry_time = Column(DateTime, nullable=False)
+    last_updated = Column(DateTime, default=datetime.utcnow)
+    tx_hash_entry = Column(String(66), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    def __repr__(self):
+        return f"<WhalePosition(whale={self.whale_address[:8]}..., market={self.market_id[:8]}...)>"
+
+
+class WhaleTransaction(Base):
+    """
+    Historical whale transactions.
+    Stores all buy/sell transactions from monitored whales.
+    """
+
+    __tablename__ = "whale_transactions"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+
+    # Whale reference
+    whale_address = Column(String(42), nullable=False, index=True)
+
+    # Market details
+    market_id = Column(String(100), nullable=True, index=True)
+    token_id = Column(String(100), nullable=True)
+
+    # Transaction details
+    transaction_type = Column(String(20), nullable=False)  # BUY, SELL
+    side = Column(String(10), nullable=True)  # YES, NO
+    price = Column(Numeric(10, 8), nullable=True)
+    size_usd = Column(Numeric(12, 2), nullable=False)
+    size_tokens = Column(Numeric(18, 8), nullable=True)
+
+    # Blockchain details
+    tx_hash = Column(String(66), unique=True, nullable=False)
+    block_number = Column(Integer, nullable=False)
+    timestamp = Column(DateTime, nullable=False, index=True)
+    gas_cost_usd = Column(Numeric(10, 6), nullable=True)
+
+    # Timestamps
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    def __repr__(self):
+        return f"<WhaleTransaction(whale={self.whale_address[:8]}..., type={self.transaction_type})>"
+
+
+class WhaleSignal(Base):
+    """
+    Copy-trading signals generated from whale activity.
+    Tracks signals to copy whale trades with appropriate delay and validation.
+    """
+
+    __tablename__ = "whale_signals"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+
+    # Whale reference
+    whale_address = Column(String(42), nullable=False, index=True)
+
+    # Signal details
+    signal_type = Column(String(20), nullable=False)  # ENTRY, EXIT, INCREASE, DECREASE
+    market_id = Column(String(100), nullable=False, index=True)
+    side = Column(String(10), nullable=False)  # YES or NO
+    price = Column(Numeric(10, 8), nullable=False)
+    size_usd = Column(Numeric(12, 2), nullable=False)
+
+    # Confidence and reasoning
+    confidence = Column(Float, nullable=False)  # Based on whale quality score
+    reasoning = Column(Text, nullable=True)
+
+    # Execution tracking
+    status = Column(String(20), default="pending")  # pending, executed, ignored, expired
+    executed_trade_id = Column(Integer, nullable=True)
+
+    # Timestamps
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    executed_at = Column(DateTime, nullable=True)
+
+    def __repr__(self):
+        return f"<WhaleSignal(type={self.signal_type}, market={self.market_id[:8]}..., status={self.status})>"
 
 
 class DatabaseManager:

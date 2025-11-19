@@ -431,6 +431,118 @@ def main():
     else:
         st.info("No strategy performance data available")
 
+    # Whale Tracking Section (if enabled)
+    if config.WHALE_TRACKING_ENABLED:
+        st.markdown("---")
+        st.header("🐋 Whale Tracking")
+
+        try:
+            from agents.application.whale import WhaleMonitor, WhaleSignalGenerator
+
+            whale_monitor = WhaleMonitor()
+            signal_gen = WhaleSignalGenerator()
+
+            # Whale Statistics
+            whale_stats = whale_monitor.get_summary_stats()
+
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("Total Whales", whale_stats['total_whales'])
+            with col2:
+                st.metric("Tracked Whales", whale_stats['tracked_whales'])
+            with col3:
+                st.metric("Smart Money", whale_stats['smart_money_whales'])
+            with col4:
+                st.metric("Avg Quality", f"{whale_stats['avg_quality_score']:.2f}")
+
+            # Whale Leaderboard
+            st.subheader("Top Whales by Quality")
+            top_whales = whale_monitor.get_top_whales(limit=10)
+
+            if top_whales:
+                whale_data = []
+                for whale in top_whales:
+                    whale_data.append({
+                        "Rank": len(whale_data) + 1,
+                        "Nickname": whale.nickname or f"{whale.address[:6]}...{whale.address[-4:]}",
+                        "Quality": f"{whale.quality_score:.2f}",
+                        "Type": whale.whale_type,
+                        "Volume": f"${float(whale.total_volume_usd):,.0f}",
+                        "Trades": whale.total_trades,
+                        "Win Rate": f"{whale.win_rate:.1f}%",
+                        "Tracked": "✅" if whale.is_tracked else "⊗"
+                    })
+
+                df_whales = pd.DataFrame(whale_data)
+
+                # Color code by quality
+                def color_quality(val):
+                    try:
+                        quality = float(val)
+                        if quality >= 0.75:
+                            return 'background-color: lightgreen'
+                        elif quality >= 0.50:
+                            return 'background-color: lightyellow'
+                        else:
+                            return 'background-color: lightcoral'
+                    except:
+                        return ''
+
+                st.dataframe(
+                    df_whales.style.applymap(
+                        color_quality,
+                        subset=['Quality']
+                    ),
+                    use_container_width=True,
+                    hide_index=True
+                )
+            else:
+                st.info("No whales discovered yet. Run whale discovery to populate database.")
+
+            # Recent Whale Signals
+            st.subheader("Recent Whale Signals")
+            recent_signals = signal_gen.get_pending_signals(max_age_seconds=86400)  # Last 24h
+
+            if recent_signals:
+                signal_data = []
+                for signal in recent_signals[:10]:  # Top 10
+                    whale = whale_monitor.get_whale(signal.whale_address)
+                    signal_data.append({
+                        "ID": signal.id,
+                        "Whale": whale.nickname or f"{signal.whale_address[:6]}..." if whale else "Unknown",
+                        "Type": signal.signal_type,
+                        "Side": signal.side,
+                        "Price": f"${float(signal.price):.3f}",
+                        "Size": f"${float(signal.size_usd):,.0f}",
+                        "Confidence": f"{signal.confidence:.2f}",
+                        "Status": signal.status,
+                        "Age": str(datetime.utcnow() - signal.created_at).split('.')[0]
+                    })
+
+                df_signals = pd.DataFrame(signal_data)
+                st.dataframe(df_signals, use_container_width=True, hide_index=True)
+            else:
+                st.info("No recent whale signals")
+
+            # Whale Signal Stats
+            signal_stats = signal_gen.get_signal_stats()
+            if signal_stats['total_signals'] > 0:
+                st.subheader("Signal Statistics")
+                sig_col1, sig_col2, sig_col3, sig_col4 = st.columns(4)
+                with sig_col1:
+                    st.metric("Total Signals", signal_stats['total_signals'])
+                with sig_col2:
+                    st.metric("Pending", signal_stats['pending'])
+                with sig_col3:
+                    st.metric("Executed", signal_stats['executed'])
+                with sig_col4:
+                    st.metric("Execution Rate", f"{signal_stats['execution_rate']:.1f}%")
+
+        except ImportError:
+            st.warning("Whale tracking modules not installed")
+        except Exception as e:
+            st.error(f"Error loading whale data: {e}")
+
     # Footer
     st.markdown("---")
     st.caption(f"Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")

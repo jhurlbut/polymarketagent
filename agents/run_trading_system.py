@@ -35,6 +35,10 @@ from agents.application.risk_manager import RiskManager
 from agents.application.strategy_manager import StrategyManager
 from agents.application.strategies import EndgameSweepStrategy
 
+# Whale following strategy (optional)
+if config.WHALE_TRACKING_ENABLED:
+    from agents.application.strategies.whale_following import WhaleFollowingStrategy
+
 # Use paper trading client to avoid py-clob-client dependency
 try:
     from agents.polymarket.polymarket import Polymarket
@@ -140,11 +144,47 @@ def register_strategies(strategy_mgr: StrategyManager, risk_mgr: RiskManager, po
     strategy_mgr.register_strategy(endgame_sweep)
     print("✓ Registered: Endgame Sweep Strategy")
 
+    # Whale Following Strategy (if enabled)
+    if config.WHALE_TRACKING_ENABLED:
+        whale_following = WhaleFollowingStrategy(
+            polymarket=polymarket,
+            risk_manager=risk_mgr,
+            enabled=True
+        )
+        strategy_mgr.register_strategy(whale_following)
+        print("✓ Registered: Whale Following Strategy")
+    else:
+        print("⊗ Whale Following Strategy disabled (WHALE_TRACKING_ENABLED=false)")
+
     # TODO: Add more strategies here
     # multi_option_arb = MultiOptionArbStrategy(...)
     # strategy_mgr.register_strategy(multi_option_arb)
 
     return strategy_mgr
+
+
+def start_whale_discovery_background():
+    """Start whale discovery service in background thread."""
+    if not config.WHALE_TRACKING_ENABLED:
+        return
+
+    logger.info("Starting whale discovery service in background...")
+
+    import threading
+    from agents.application.whale.auto_discovery import start_whale_discovery_service
+
+    # Start in daemon thread so it stops when main program exits
+    discovery_thread = threading.Thread(
+        target=start_whale_discovery_service,
+        kwargs={
+            'scan_interval_minutes': 5,  # Scan every 5 minutes
+            'markets_per_scan': 50
+        },
+        daemon=True
+    )
+
+    discovery_thread.start()
+    logger.info("✓ Whale discovery service running in background")
 
 
 def run_system(strategy_name: Optional[str] = None, test_mode: bool = False):
@@ -173,6 +213,9 @@ def run_system(strategy_name: Optional[str] = None, test_mode: bool = False):
 
     # Register strategies
     strategy_mgr = register_strategies(strategy_mgr, risk_mgr, polymarket)
+
+    # Start whale discovery in background (if enabled)
+    start_whale_discovery_background()
 
     # Print initial status
     print("\n" + "=" * 70)
