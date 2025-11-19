@@ -179,16 +179,17 @@ def main():
             help="Maximum time until market settles (hours)"
         )
 
-        # Confidence Threshold
-        min_confidence = st.slider(
+        # Confidence Threshold (display as percentage)
+        min_confidence_pct = st.slider(
             "Min Confidence",
-            min_value=0.0,
-            max_value=1.0,
-            value=float(settings.endgame_min_confidence),
-            step=0.05,
-            format="%.0f%%",
+            min_value=0,
+            max_value=100,
+            value=int(float(settings.endgame_min_confidence) * 100),
+            step=5,
+            format="%d%%",
             help="Minimum confidence threshold (lower = more trades)"
         )
+        min_confidence = min_confidence_pct / 100.0  # Convert back to decimal
 
         # Save button
         if st.button("💾 Save Settings & Scan Now", type="primary"):
