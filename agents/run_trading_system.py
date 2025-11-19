@@ -57,10 +57,34 @@ def setup_logging(verbose: bool = False):
 
 
 def initialize_database():
-    """Initialize database tables."""
+    """Initialize database tables and run migrations."""
     print("Initializing database...")
     try:
         db.create_tables()
+
+        # Run migration to add scan_requested column if needed
+        from sqlalchemy import text
+        session = db.get_session()
+        try:
+            # Check if scan_requested column exists
+            result = session.execute(text("""
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_name='strategy_settings'
+                AND column_name='scan_requested'
+            """))
+
+            if not result.fetchone():
+                print("Running migration: Adding scan_requested column...")
+                session.execute(text("""
+                    ALTER TABLE strategy_settings
+                    ADD COLUMN scan_requested BOOLEAN NOT NULL DEFAULT FALSE
+                """))
+                session.commit()
+                print("✓ Migration completed")
+        finally:
+            session.close()
+
         print("✓ Database initialized successfully")
     except Exception as e:
         print(f"✗ Database initialization error: {e}")
