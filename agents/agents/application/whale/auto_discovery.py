@@ -369,28 +369,27 @@ class PolymarketWhaleDiscovery:
             for market in markets_to_scan:
                 try:
                     # Get token IDs for this market
-                    token_ids = []
-                    if hasattr(market, 'clob_token_ids'):
-                        token_ids = market.clob_token_ids
-                    elif hasattr(market, 'clobTokenIds'):
-                        token_ids = market.clobTokenIds
+                    # Markets are dicts, not objects, so use dict access not hasattr()
+                    token_ids = market.get('clobTokenIds') or market.get('clob_token_ids', [])
 
                     if not token_ids:
                         continue
 
                     # Scan market
-                    whales = self.scan_market_for_whales(market.market_id, token_ids)
+                    market_id = market.get('id') or market.get('market_id', '')
+                    whales = self.scan_market_for_whales(market_id, token_ids)
                     total_whales += whales
                     markets_scanned += 1
 
                     if whales > 0:
                         logger.info(
-                            f"  Market {market.market_id[:10]}...: "
+                            f"  Market {market_id[:10]}...: "
                             f"found {whales} whale trade(s)"
                         )
 
                 except Exception as e:
-                    logger.error(f"Error scanning market {market.market_id}: {e}")
+                    market_id = market.get('id') or market.get('market_id', 'unknown')
+                    logger.error(f"Error scanning market {market_id}: {e}")
                     continue
 
             # Summary
