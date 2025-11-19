@@ -84,6 +84,7 @@ class PerformanceAnalyzer:
                 "total_trades": 0,
                 "winning_trades": 0,
                 "losing_trades": 0,
+                "breakeven_trades": 0,
                 "win_rate": 0.0,
                 "total_profit": 0.0,
                 "total_loss": 0.0,

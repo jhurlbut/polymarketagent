@@ -354,22 +354,19 @@ class PolymarketWhaleDiscovery:
             markets = polymarket.get_all_tradeable_markets()
             logger.info(f"Found {len(markets)} active markets")
 
-            # Filter high-volume markets
-            high_volume_markets = [
-                m for m in markets
-                if hasattr(m, 'volume24hr') and float(m.volume24hr or 0) >= min_volume_24h
-            ]
+            # Note: Volume filtering skipped as market data doesn't include volume24hr field
+            # Instead, we'll scan first N markets which are typically the most active
+            markets_to_scan = markets[:limit]
 
             logger.info(
-                f"Scanning {len(high_volume_markets)} high-volume markets "
-                f"(>${min_volume_24h:,.0f}+ 24h volume)"
+                f"Scanning {len(markets_to_scan)} markets for whale activity"
             )
 
             # Scan markets
             total_whales = 0
             markets_scanned = 0
 
-            for market in high_volume_markets[:limit]:
+            for market in markets_to_scan:
                 try:
                     # Get token IDs for this market
                     token_ids = []
