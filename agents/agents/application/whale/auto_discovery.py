@@ -26,6 +26,11 @@ from agents.application.whale import WhaleMonitor, WhaleScorer, WhaleSignalGener
 
 logger = logging.getLogger(__name__)
 
+# Rate limiting configuration
+API_RATE_LIMIT_DELAY = 1.5  # 1.5 seconds between requests
+API_RETRY_ATTEMPTS = 3
+API_RETRY_BACKOFF = 2.0  # Exponential backoff multiplier
+
 
 class PolymarketWhaleDiscovery:
     """
@@ -85,7 +90,7 @@ class PolymarketWhaleDiscovery:
         limit: int = 100
     ) -> List[Dict]:
         """
-        Get recent trades for a specific market token.
+        Get recent trades for a specific market token with rate limiting and retry logic.
 
         Args:
             token_id: Polymarket token ID
@@ -94,30 +99,62 @@ class PolymarketWhaleDiscovery:
         Returns:
             List of trade dictionaries
         """
-        try:
-            url = f"{self.clob_api_base}/trades"
-            params = {
-                'id': token_id,
-                'limit': limit
-            }
+        url = f"{self.clob_api_base}/trades"
+        params = {
+            'id': token_id,
+            'limit': limit
+        }
 
-            logger.debug(f"🔍 Fetching trades from {url} with token_id={token_id[:8]}...")
-            response = requests.get(url, params=params, timeout=10)
+        # Retry loop with exponential backoff
+        for attempt in range(API_RETRY_ATTEMPTS):
+            try:
+                logger.debug(f"🔍 Fetching trades from {url} with token_id={token_id[:8]}... (attempt {attempt + 1}/{API_RETRY_ATTEMPTS})")
 
-            if response.status_code == 200:
-                trades = response.json()
-                logger.info(f"✓ Fetched {len(trades)} trades for token {token_id[:8]}...")
-                if len(trades) > 0:
-                    # Log first trade as example
-                    logger.debug(f"  Example trade: {trades[0]}")
-                return trades
-            else:
-                logger.warning(f"Failed to fetch trades for token {token_id[:8]}...: HTTP {response.status_code}")
+                # Rate limiting - add delay between requests
+                if attempt > 0:
+                    # Exponential backoff for retries
+                    delay = API_RATE_LIMIT_DELAY * (API_RETRY_BACKOFF ** attempt)
+                    logger.debug(f"  Waiting {delay:.2f}s before retry...")
+                    time.sleep(delay)
+                else:
+                    # Normal rate limiting
+                    time.sleep(API_RATE_LIMIT_DELAY)
+
+                response = requests.get(url, params=params, timeout=10)
+
+                if response.status_code == 200:
+                    trades = response.json()
+                    logger.info(f"✓ Fetched {len(trades)} trades for token {token_id[:8]}...")
+                    if len(trades) > 0:
+                        # Log first trade as example
+                        logger.debug(f"  Example trade: {trades[0]}")
+                    return trades
+                elif response.status_code == 429:
+                    # Rate limited - retry with backoff
+                    logger.warning(f"⚠️  Rate limited for token {token_id[:8]}... (attempt {attempt + 1}/{API_RETRY_ATTEMPTS})")
+                    if attempt < API_RETRY_ATTEMPTS - 1:
+                        continue  # Retry
+                    else:
+                        logger.error(f"Failed to fetch trades after {API_RETRY_ATTEMPTS} attempts due to rate limiting")
+                        return []
+                elif response.status_code == 401:
+                    # Unauthorized - don't retry
+                    logger.warning(f"Unauthorized (401) for token {token_id[:8]}...")
+                    return []
+                else:
+                    logger.warning(f"Failed to fetch trades for token {token_id[:8]}...: HTTP {response.status_code}")
+                    return []
+
+            except requests.exceptions.Timeout:
+                logger.warning(f"Timeout fetching trades for token {token_id[:8]}... (attempt {attempt + 1}/{API_RETRY_ATTEMPTS})")
+                if attempt < API_RETRY_ATTEMPTS - 1:
+                    continue
+                return []
+            except Exception as e:
+                logger.error(f"Error fetching market trades for token {token_id[:8]}...: {e}")
                 return []
 
-        except Exception as e:
-            logger.error(f"Error fetching market trades for token {token_id[:8]}...: {e}")
-            return []
+        return []
 
     def get_orderbook(self, token_id: str) -> Dict:
         """
@@ -472,20 +509,21 @@ class PolymarketWhaleDiscovery:
     def run_continuous_discovery(
         self,
         scan_interval_seconds: int = 300,
-        markets_per_scan: int = 50
+        markets_per_scan: int = 20
     ):
         """
         Run continuous whale discovery in background.
 
         Args:
             scan_interval_seconds: Seconds between scans (default 5 minutes)
-            markets_per_scan: Markets to scan per run
+            markets_per_scan: Markets to scan per run (default 20 to avoid rate limiting)
         """
         logger.info("=" * 70)
         logger.info("STARTING CONTINUOUS WHALE DISCOVERY")
         logger.info("=" * 70)
         logger.info(f"Scan interval: {scan_interval_seconds}s ({scan_interval_seconds//60} minutes)")
         logger.info(f"Markets per scan: {markets_per_scan}")
+        logger.info(f"API rate limit: {API_RATE_LIMIT_DELAY}s between requests")
         logger.info("=" * 70)
 
         scan_count = 0
@@ -523,14 +561,14 @@ class PolymarketWhaleDiscovery:
 
 def start_whale_discovery_service(
     scan_interval_minutes: int = 5,
-    markets_per_scan: int = 50
+    markets_per_scan: int = 20
 ):
     """
     Start whale discovery service (for use in trading system).
 
     Args:
         scan_interval_minutes: Minutes between scans
-        markets_per_scan: Markets to scan per run
+        markets_per_scan: Markets to scan per run (default 20 to avoid rate limiting)
     """
     logger.info("Starting Whale Discovery Service...")
 
