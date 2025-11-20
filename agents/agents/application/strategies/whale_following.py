@@ -219,8 +219,18 @@ class WhaleFollowingStrategy(TradingStrategy):
             List of opportunities based on whale signals
         """
         self.logger.info("Scanning for whale following opportunities...")
+        self.logger.info(f"Copy delay: {self.copy_delay_seconds}s, Min whale quality: {self.min_whale_quality:.2f}")
 
         opportunities = []
+
+        # Track filter statistics
+        stats = {
+            'total_signals': 0,
+            'whale_not_found': 0,
+            'skipped': 0,
+            'no_price': 0,
+            'passed_filters': 0
+        }
 
         try:
             # Get copyable signals (past delay period)
@@ -228,28 +238,38 @@ class WhaleFollowingStrategy(TradingStrategy):
                 copy_delay_seconds=self.copy_delay_seconds
             )
 
-            self.logger.info(f"Found {len(signals)} copyable whale signals")
+            stats['total_signals'] = len(signals)
+            self.logger.info(f"Found {len(signals)} copyable signals (delay: {self.copy_delay_seconds}s)")
 
             for signal in signals:
                 try:
+                    self.logger.debug(f"  → Signal #{signal.id}: {signal.signal_type} {signal.side} on {signal.market_id[:10]}...")
+
                     # Get whale info
                     whale = self.whale_monitor.get_whale(signal.whale_address)
                     if not whale:
-                        self.logger.warning(f"Whale {signal.whale_address} not found, skipping signal #{signal.id}")
+                        stats['whale_not_found'] += 1
+                        self.logger.warning(f"    ✗ Whale {signal.whale_address[:8]}... not found")
                         continue
+
+                    self.logger.debug(f"    Whale: {whale.nickname or signal.whale_address[:8]}..., quality: {whale.quality_score:.2f}")
 
                     # Check if signal should be skipped
                     should_skip, skip_reason = self.should_skip_signal(signal)
                     if should_skip:
-                        self.logger.info(f"Skipping signal #{signal.id}: {skip_reason}")
+                        stats['skipped'] += 1
+                        self.logger.info(f"    ✗ Skipped: {skip_reason}")
                         self.signal_generator.mark_signal_ignored(signal.id, skip_reason)
                         continue
 
                     # Get current market info
                     current_price = self.get_current_market_price(signal.market_id, signal.side)
                     if current_price is None:
-                        self.logger.warning(f"Could not get current price for {signal.market_id}, skipping")
+                        stats['no_price'] += 1
+                        self.logger.warning(f"    ✗ Could not get current price for {signal.market_id}")
                         continue
+
+                    self.logger.debug(f"    Current price: {current_price:.3f}, Whale entry: {float(signal.price):.3f}")
 
                     # Calculate expected profit
                     if signal.signal_type == "ENTRY":
@@ -281,17 +301,27 @@ class WhaleFollowingStrategy(TradingStrategy):
                         )
                     }
 
+                    stats['passed_filters'] += 1
                     opportunities.append(opportunity)
 
                     self.logger.info(
-                        f"Found opportunity: Signal #{signal.id} - {opportunity['reasoning']}"
+                        f"    ✓✓ OPPORTUNITY: Signal #{signal.id} - {opportunity['reasoning']}"
                     )
 
                 except Exception as e:
-                    self.logger.error(f"Error processing signal #{signal.id}: {e}", exc_info=True)
+                    self.logger.error(f"  ✗ Error processing signal #{signal.id}: {e}", exc_info=True)
                     continue
 
-            self.logger.info(f"Found {len(opportunities)} whale following opportunities")
+            # Log statistics summary
+            self.logger.info("=" * 70)
+            self.logger.info("WHALE FOLLOWING SCAN COMPLETE")
+            self.logger.info("=" * 70)
+            self.logger.info(f"Total signals checked: {stats['total_signals']}")
+            self.logger.info(f"  ✗ Whale not found: {stats['whale_not_found']}")
+            self.logger.info(f"  ✗ Skipped (already copied, quality, etc.): {stats['skipped']}")
+            self.logger.info(f"  ✗ Could not get price: {stats['no_price']}")
+            self.logger.info(f"  ✓ Passed all filters: {stats['passed_filters']}")
+            self.logger.info(f"\nFound {len(opportunities)} whale following opportunities")
 
             # Sort by whale quality (highest quality first)
             opportunities.sort(key=lambda x: x['whale_quality'], reverse=True)

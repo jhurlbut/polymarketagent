@@ -209,39 +209,69 @@ class EndgameSweepStrategy(TradingStrategy):
         self.load_settings_from_db()
 
         self.logger.info("Scanning for endgame sweep opportunities...")
+        self.logger.info(f"Filters: price [{self.min_price}, {self.max_price}], max settlement {self.max_hours_to_settlement}h, min confidence {self.min_confidence:.0%}")
 
         opportunities = []
+
+        # Track filter statistics
+        stats = {
+            'total_markets': 0,
+            'not_binary': 0,
+            'price_out_of_range': 0,
+            'not_near_settlement': 0,
+            'low_confidence': 0,
+            'manipulation_detected': 0,
+            'passed_filters': 0
+        }
 
         try:
             # Get all tradeable markets
             markets = self.polymarket.get_all_tradeable_markets()
+            stats['total_markets'] = len(markets)
             self.logger.info(f"Scanning {len(markets)} tradeable markets")
 
             for market in markets:
                 try:
+                    market_id = getattr(market, 'market_id', 'unknown')
+                    market_question = getattr(market, 'question', 'Unknown question')
+
                     # Check if market is binary (has clear YES/NO)
                     if not hasattr(market, 'outcome_prices') or len(market.outcome_prices) != 2:
+                        stats['not_binary'] += 1
+                        self.logger.debug(f"  ✗ {market_id[:10]}... not binary (has {len(getattr(market, 'outcome_prices', []))} outcomes)")
                         continue
 
                     # Get YES and NO prices
                     yes_price = market.outcome_prices[0]
                     no_price = market.outcome_prices[1]
 
+                    self.logger.debug(f"  → {market_id[:10]}... YES={yes_price:.3f}, NO={no_price:.3f}: {market_question[:50]}...")
+
+                    # Track if this market passes any checks
+                    market_checked = False
+
                     # Check YES side
                     if self.min_price <= yes_price <= self.max_price:
+                        self.logger.debug(f"    YES price in range [{self.min_price}, {self.max_price}]")
+                        market_checked = True
+
                         if self.is_near_settlement(market):
+                            self.logger.debug(f"    ✓ Near settlement (< {self.max_hours_to_settlement}h)")
+
                             # Calculate expected profit
                             expected_profit_pct = ((1.0 - yes_price) / yes_price) * 100
 
                             # Check black swan risk
                             black_swan_risk = self.calculate_black_swan_risk(market)
+                            self.logger.debug(f"    Black swan risk: {black_swan_risk:.2f}")
 
                             # Check for manipulation
                             manipulation_detected = self.detect_manipulation_signals(market)
 
                             if manipulation_detected:
+                                stats['manipulation_detected'] += 1
                                 self.logger.warning(
-                                    f"Manipulation detected in {market.market_id}, skipping"
+                                    f"    ✗ Manipulation detected in {market_id}, skipping"
                                 )
                                 continue
 
@@ -250,6 +280,7 @@ class EndgameSweepStrategy(TradingStrategy):
 
                             # Only proceed if confidence is high enough
                             if confidence >= self.min_confidence:
+                                stats['passed_filters'] += 1
                                 opportunity = {
                                     "market_id": market.market_id,
                                     "market_question": getattr(market, 'question', 'Unknown'),
@@ -266,22 +297,43 @@ class EndgameSweepStrategy(TradingStrategy):
                                 }
                                 opportunities.append(opportunity)
                                 self.logger.info(
-                                    f"Found opportunity: {market.market_id} - {opportunity['reasoning']}"
+                                    f"    ✓✓ OPPORTUNITY: {market.market_id} - {opportunity['reasoning']}"
                                 )
+                            else:
+                                stats['low_confidence'] += 1
+                                self.logger.debug(f"    ✗ Confidence too low: {confidence:.2f} < {self.min_confidence}")
+                        else:
+                            stats['not_near_settlement'] += 1
+                            self.logger.debug(f"    ✗ Not near settlement (> {self.max_hours_to_settlement}h)")
+                    elif yes_price > self.max_price:
+                        stats['price_out_of_range'] += 1
+                        self.logger.debug(f"    ✗ YES price too high: {yes_price:.3f} > {self.max_price}")
+                        market_checked = True
+                    elif yes_price < self.min_price:
+                        stats['price_out_of_range'] += 1
+                        self.logger.debug(f"    ✗ YES price too low: {yes_price:.3f} < {self.min_price}")
+                        market_checked = True
 
                     # Check NO side
                     if self.min_price <= no_price <= self.max_price:
+                        self.logger.debug(f"    NO price in range [{self.min_price}, {self.max_price}]")
+                        market_checked = True
                         if self.is_near_settlement(market):
+                            self.logger.debug(f"    ✓ Near settlement (< {self.max_hours_to_settlement}h)")
                             expected_profit_pct = ((1.0 - no_price) / no_price) * 100
                             black_swan_risk = self.calculate_black_swan_risk(market)
+                            self.logger.debug(f"    Black swan risk: {black_swan_risk:.2f}")
                             manipulation_detected = self.detect_manipulation_signals(market)
 
                             if manipulation_detected:
+                                stats['manipulation_detected'] += 1
+                                self.logger.warning(f"    ✗ Manipulation detected in {market_id}, skipping")
                                 continue
 
                             confidence = 1.0 - black_swan_risk
 
-                            if confidence >= 0.7:
+                            if confidence >= self.min_confidence:
+                                stats['passed_filters'] += 1
                                 opportunity = {
                                     "market_id": market.market_id,
                                     "market_question": getattr(market, 'question', 'Unknown'),
@@ -297,12 +349,44 @@ class EndgameSweepStrategy(TradingStrategy):
                                     )
                                 }
                                 opportunities.append(opportunity)
+                                self.logger.info(
+                                    f"    ✓✓ OPPORTUNITY: {market.market_id} - {opportunity['reasoning']}"
+                                )
+                            else:
+                                stats['low_confidence'] += 1
+                                self.logger.debug(f"    ✗ Confidence too low: {confidence:.2f} < {self.min_confidence}")
+                        else:
+                            stats['not_near_settlement'] += 1
+                            self.logger.debug(f"    ✗ Not near settlement (> {self.max_hours_to_settlement}h)")
+                    elif no_price > self.max_price:
+                        stats['price_out_of_range'] += 1
+                        self.logger.debug(f"    ✗ NO price too high: {no_price:.3f} > {self.max_price}")
+                        market_checked = True
+                    elif no_price < self.min_price:
+                        stats['price_out_of_range'] += 1
+                        self.logger.debug(f"    ✗ NO price too low: {no_price:.3f} < {self.min_price}")
+                        market_checked = True
+
+                    # If neither YES nor NO was in range, log it
+                    if not market_checked:
+                        self.logger.debug(f"    ✗ Both prices out of range")
 
                 except Exception as e:
-                    self.logger.debug(f"Error analyzing market {market.market_id}: {e}")
+                    self.logger.debug(f"  ✗ Error analyzing market {market_id}: {e}")
                     continue
 
-            self.logger.info(f"Found {len(opportunities)} endgame sweep opportunities")
+            # Log statistics summary
+            self.logger.info("=" * 70)
+            self.logger.info("ENDGAME SWEEP SCAN COMPLETE")
+            self.logger.info("=" * 70)
+            self.logger.info(f"Total markets scanned: {stats['total_markets']}")
+            self.logger.info(f"  ✗ Not binary: {stats['not_binary']}")
+            self.logger.info(f"  ✗ Price out of range: {stats['price_out_of_range']}")
+            self.logger.info(f"  ✗ Not near settlement: {stats['not_near_settlement']}")
+            self.logger.info(f"  ✗ Low confidence: {stats['low_confidence']}")
+            self.logger.info(f"  ✗ Manipulation detected: {stats['manipulation_detected']}")
+            self.logger.info(f"  ✓ Passed all filters: {stats['passed_filters']}")
+            self.logger.info(f"\nFound {len(opportunities)} endgame sweep opportunities")
 
             # Sort by expected profit (highest first)
             opportunities.sort(key=lambda x: x['expected_profit_pct'], reverse=True)
