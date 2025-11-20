@@ -101,18 +101,22 @@ class PolymarketWhaleDiscovery:
                 'limit': limit
             }
 
+            logger.debug(f"🔍 Fetching trades from {url} with token_id={token_id[:8]}...")
             response = requests.get(url, params=params, timeout=10)
 
             if response.status_code == 200:
                 trades = response.json()
-                logger.debug(f"Fetched {len(trades)} trades for token {token_id[:8]}...")
+                logger.info(f"✓ Fetched {len(trades)} trades for token {token_id[:8]}...")
+                if len(trades) > 0:
+                    # Log first trade as example
+                    logger.debug(f"  Example trade: {trades[0]}")
                 return trades
             else:
-                logger.warning(f"Failed to fetch trades: HTTP {response.status_code}")
+                logger.warning(f"Failed to fetch trades for token {token_id[:8]}...: HTTP {response.status_code}")
                 return []
 
         except Exception as e:
-            logger.error(f"Error fetching market trades: {e}")
+            logger.error(f"Error fetching market trades for token {token_id[:8]}...: {e}")
             return []
 
     def get_orderbook(self, token_id: str) -> Dict:
@@ -163,13 +167,23 @@ class PolymarketWhaleDiscovery:
             # Calculate USD value (assuming price is in cents)
             trade_value_usd = size * price
 
+            logger.debug(
+                f"  Processing trade: maker={maker[:8] if maker else 'N/A'}..., "
+                f"taker={taker[:8] if taker else 'N/A'}..., "
+                f"size={size}, price={price}, value_usd=${trade_value_usd:.2f}"
+            )
+
             # Check if trade is large enough
             if trade_value_usd < self.min_trade_size_usd:
+                logger.debug(f"  ✗ Trade too small: ${trade_value_usd:.2f} < ${self.min_trade_size_usd}")
                 return None
+
+            logger.info(f"  ✓ Large trade found: ${trade_value_usd:,.2f}")
 
             # Update stats for both maker and taker
             for address in [maker, taker]:
                 if not address or address == '0x' + '0'*40:
+                    logger.debug(f"  ✗ Skipping invalid address: {address}")
                     continue
 
                 stats = self.trader_stats[address]
@@ -178,20 +192,22 @@ class PolymarketWhaleDiscovery:
                 stats['last_seen'] = datetime.utcnow()
                 stats['markets_traded'].add(market_id)
 
-                logger.debug(
-                    f"Trader {address[:8]}...: "
+                logger.info(
+                    f"  📈 Trader {address[:8]}...: "
                     f"${trade_value_usd:,.0f} trade, "
-                    f"total: ${stats['total_volume']:,.0f}"
+                    f"total: ${stats['total_volume']:,.0f} ({stats['trade_count']} trades)"
                 )
 
                 # Check if this trader qualifies as a whale
                 if stats['total_volume'] >= self.min_total_volume_usd:
+                    logger.info(f"  🐋 WHALE THRESHOLD REACHED: {address[:8]}... (${stats['total_volume']:,.0f})")
                     return address
 
             return None
 
         except Exception as e:
-            logger.error(f"Error processing trade: {e}")
+            logger.error(f"Error processing trade: {e}", exc_info=True)
+            logger.error(f"Trade data: {trade}")
             return None
 
     def create_or_update_whale(self, address: str) -> Optional[Whale]:
@@ -306,11 +322,14 @@ class PolymarketWhaleDiscovery:
         Returns:
             Number of potential whales found
         """
+        logger.debug(f"🔍 Scanning market {market_id[:10]}... with {len(token_ids)} token(s)")
         whales_found = 0
+        total_trades = 0
 
         for token_id in token_ids:
             # Get recent trades
             trades = self.get_market_trades(token_id, limit=50)
+            total_trades += len(trades)
 
             for trade in trades:
                 # Process trade and check if whale-sized
@@ -324,6 +343,11 @@ class PolymarketWhaleDiscovery:
                         # Try to score if ready
                         self.score_whale_if_ready(whale_address)
                         whales_found += 1
+
+        if total_trades > 0:
+            logger.info(f"  Market {market_id[:10]}...: processed {total_trades} trades, found {whales_found} whale(s)")
+        else:
+            logger.debug(f"  Market {market_id[:10]}...: no trades found")
 
         return whales_found
 
@@ -356,6 +380,12 @@ class PolymarketWhaleDiscovery:
             markets = polymarket.get_tradeable_markets(limit=limit)
             logger.info(f"Found {len(markets)} active markets")
 
+            # Log sample of markets for debugging
+            if len(markets) > 0:
+                sample_market = markets[0]
+                logger.info(f"Sample market structure: {list(sample_market.keys())}")
+                logger.debug(f"Sample market data: {sample_market}")
+
             markets_to_scan = markets
 
             logger.info(
@@ -365,6 +395,8 @@ class PolymarketWhaleDiscovery:
             # Scan markets
             total_whales = 0
             markets_scanned = 0
+            markets_with_no_tokens = 0
+            total_trades_found = 0
 
             for market in markets_to_scan:
                 try:
@@ -373,28 +405,35 @@ class PolymarketWhaleDiscovery:
                     token_ids = market.get('clobTokenIds') or market.get('clob_token_ids', [])
 
                     if not token_ids:
+                        markets_with_no_tokens += 1
+                        market_id = market.get('id') or market.get('market_id', 'unknown')
+                        logger.debug(f"  ✗ Market {market_id[:10]}... has no token IDs")
                         continue
 
                     # Scan market
                     market_id = market.get('id') or market.get('market_id', '')
+                    market_question = market.get('question', 'Unknown question')
+                    logger.info(f"  → Scanning market {market_id[:10]}...: {market_question[:60]}...")
+
                     whales = self.scan_market_for_whales(market_id, token_ids)
                     total_whales += whales
                     markets_scanned += 1
 
                     if whales > 0:
                         logger.info(
-                            f"  Market {market_id[:10]}...: "
+                            f"  ✓ Market {market_id[:10]}...: "
                             f"found {whales} whale trade(s)"
                         )
 
                 except Exception as e:
                     market_id = market.get('id') or market.get('market_id', 'unknown')
-                    logger.error(f"Error scanning market {market_id}: {e}")
+                    logger.error(f"Error scanning market {market_id}: {e}", exc_info=True)
                     continue
 
             # Summary
             stats = {
                 'markets_scanned': markets_scanned,
+                'markets_with_no_tokens': markets_with_no_tokens,
                 'whale_trades_found': total_whales,
                 'unique_whales_tracked': len(self.tracked_addresses),
                 'total_traders_seen': len(self.trader_stats)
@@ -403,10 +442,26 @@ class PolymarketWhaleDiscovery:
             logger.info("=" * 70)
             logger.info("SCAN COMPLETE")
             logger.info("=" * 70)
+            logger.info(f"Markets found: {len(markets)}")
             logger.info(f"Markets scanned: {stats['markets_scanned']}")
+            logger.info(f"Markets with no tokens: {stats['markets_with_no_tokens']}")
             logger.info(f"Whale trades found: {stats['whale_trades_found']}")
             logger.info(f"Unique whales: {stats['unique_whales_tracked']}")
             logger.info(f"Total traders seen: {stats['total_traders_seen']}")
+
+            # Log trader stats summary
+            if len(self.trader_stats) > 0:
+                logger.info("\n📊 Trader stats summary:")
+                sorted_traders = sorted(
+                    self.trader_stats.items(),
+                    key=lambda x: x[1]['total_volume'],
+                    reverse=True
+                )[:5]  # Top 5
+                for address, stats in sorted_traders:
+                    logger.info(
+                        f"  {address[:8]}...: ${stats['total_volume']:,.2f} "
+                        f"({stats['trade_count']} trades)"
+                    )
 
             return stats
 
