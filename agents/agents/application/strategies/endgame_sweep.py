@@ -21,7 +21,7 @@ Key Features:
 from typing import Dict, List, Optional, Any
 from datetime import datetime, timedelta
 import logging
-import ast
+import json
 
 from agents.application.strategy_manager import TradingStrategy
 from agents.application.risk_manager import RiskManager
@@ -95,39 +95,39 @@ class EndgameSweepStrategy(TradingStrategy):
         except Exception as e:
             self.logger.warning(f"Could not load settings from database, using defaults: {e}")
 
-    def is_near_settlement(self, market: SimpleMarket) -> bool:
+    def is_near_settlement(self, market: dict) -> bool:
         """
         Check if market is close to settlement.
 
         Args:
-            market: SimpleMarket object
+            market: Market dictionary from API
 
         Returns:
             True if market will settle soon
         """
-        # TODO: Implement proper settlement time checking
-        # For now, we'll use a simple heuristic based on market metadata
-
         # Check if market has an end date
-        if hasattr(market, 'end_date_iso') and market.end_date_iso:
+        end_date_str = market.get('endDate') or market.get('end_date_iso')
+        if end_date_str:
             try:
-                end_date = datetime.fromisoformat(market.end_date_iso.replace('Z', '+00:00'))
+                end_date = datetime.fromisoformat(end_date_str.replace('Z', '+00:00'))
                 time_to_settlement = end_date - datetime.now(end_date.tzinfo)
 
                 hours_to_settlement = time_to_settlement.total_seconds() / 3600
 
                 if hours_to_settlement <= self.max_hours_to_settlement:
+                    market_id = market.get('id', 'unknown')
                     self.logger.debug(
-                        f"Market {market.market_id} settles in {hours_to_settlement:.1f}h"
+                        f"Market {market_id} settles in {hours_to_settlement:.1f}h"
                     )
                     return True
 
             except Exception as e:
-                self.logger.debug(f"Error parsing end date for {market.market_id}: {e}")
+                market_id = market.get('id', 'unknown')
+                self.logger.debug(f"Error parsing end date for {market_id}: {e}")
 
         return False
 
-    def calculate_black_swan_risk(self, market: SimpleMarket) -> float:
+    def calculate_black_swan_risk(self, market: dict) -> float:
         """
         Estimate black swan risk for a market.
 
@@ -135,7 +135,7 @@ class EndgameSweepStrategy(TradingStrategy):
         Examples: match ruled invalid, scandal overturns election, etc.
 
         Args:
-            market: SimpleMarket object
+            market: Market dictionary from API
 
         Returns:
             Risk score from 0 (low risk) to 1 (high risk)
@@ -146,17 +146,20 @@ class EndgameSweepStrategy(TradingStrategy):
         # For now, use simple heuristics:
 
         # 1. Check market category (sports have higher reversal risk)
-        if hasattr(market, 'tags') and market.tags:
-            if 'sports' in [tag.lower() for tag in market.tags]:
+        tags = market.get('tags', [])
+        if tags:
+            tag_names = [tag.get('label', '').lower() if isinstance(tag, dict) else str(tag).lower() for tag in tags]
+            if 'sports' in tag_names:
                 risk_score += 0.2
                 self.logger.debug(f"Sports market - increased black swan risk")
 
         # 2. Check time to settlement (longer time = higher risk)
         # Markets settling in <1 hour are very low risk
         # Markets settling in 12-24 hours have medium risk
-        if hasattr(market, 'end_date_iso') and market.end_date_iso:
+        end_date_str = market.get('endDate') or market.get('end_date_iso')
+        if end_date_str:
             try:
-                end_date = datetime.fromisoformat(market.end_date_iso.replace('Z', '+00:00'))
+                end_date = datetime.fromisoformat(end_date_str.replace('Z', '+00:00'))
                 hours_to_settlement = (end_date - datetime.now(end_date.tzinfo)).total_seconds() / 3600
 
                 if hours_to_settlement > 12:
@@ -177,7 +180,7 @@ class EndgameSweepStrategy(TradingStrategy):
 
         return risk_score
 
-    def detect_manipulation_signals(self, market: SimpleMarket) -> bool:
+    def detect_manipulation_signals(self, market: dict) -> bool:
         """
         Detect potential whale manipulation signals.
 
@@ -187,7 +190,7 @@ class EndgameSweepStrategy(TradingStrategy):
         3. Create artificial reversal rumors
 
         Args:
-            market: SimpleMarket object
+            market: Market dictionary from API
 
         Returns:
             True if manipulation signals detected
@@ -231,36 +234,27 @@ class EndgameSweepStrategy(TradingStrategy):
             stats['total_markets'] = len(markets)
             self.logger.info(f"Scanning {len(markets)} tradeable markets")
 
-            # Log first market for debugging
-            if markets:
-                first_market = markets[0]
-                self.logger.info(f"DEBUG: First market type: {type(first_market)}")
-                self.logger.info(f"DEBUG: First market data: {first_market}")
-                if hasattr(first_market, '__dict__'):
-                    self.logger.info(f"DEBUG: Market attributes: {first_market.__dict__}")
-
             for market in markets:
                 try:
-
-                    # Markets are SimpleMarket Pydantic objects with attributes
-                    market_id = getattr(market, 'id', 'unknown')
-                    market_question = getattr(market, 'question', 'Unknown question')
+                    # Markets are returned as dictionaries from Gamma API
+                    market_id = market.get('id', 'unknown')
+                    market_question = market.get('question', 'Unknown question')
 
                     # Check if market is binary (has clear YES/NO)
-                    # outcome_prices is a STRING that needs parsing
-                    outcome_prices_str = getattr(market, 'outcome_prices', None)
+                    # outcomePrices is a STRINGIFIED JSON list from the API
+                    outcome_prices_str = market.get('outcomePrices')
 
                     if not outcome_prices_str:
                         stats['not_binary'] += 1
-                        self.logger.debug(f"  ✗ {str(market_id)[:10]}... no outcome_prices attribute")
+                        self.logger.debug(f"  ✗ {str(market_id)[:10]}... no outcomePrices field (probably not funded)")
                         continue
 
-                    # Parse the string into a list
+                    # Parse the JSON string into a list
                     try:
-                        outcome_prices = ast.literal_eval(outcome_prices_str)
-                    except (ValueError, SyntaxError) as e:
+                        outcome_prices = json.loads(outcome_prices_str)
+                    except (ValueError, json.JSONDecodeError) as e:
                         stats['not_binary'] += 1
-                        self.logger.debug(f"  ✗ {str(market_id)[:10]}... failed to parse outcome_prices: {e}")
+                        self.logger.debug(f"  ✗ {str(market_id)[:10]}... failed to parse outcomePrices: {e}")
                         continue
 
                     if not outcome_prices or len(outcome_prices) != 2:
