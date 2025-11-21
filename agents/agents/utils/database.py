@@ -4,15 +4,21 @@ Uses SQLAlchemy for ORM with support for SQLite and PostgreSQL.
 """
 
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Callable, Any
 from decimal import Decimal
+import time
+import logging
+from functools import wraps
 
-from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, Boolean, Text, Numeric
+from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, Boolean, Text, Numeric, text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.pool import StaticPool
+from sqlalchemy.exc import OperationalError, DBAPIError
 
 from agents.utils.config import config
+
+logger = logging.getLogger(__name__)
 
 Base = declarative_base()
 
@@ -387,6 +393,45 @@ class WhaleSignal(Base):
         return f"<WhaleSignal(type={self.signal_type}, market={self.market_id[:8]}..., status={self.status})>"
 
 
+def retry_on_db_error(max_retries: int = 3, initial_delay: float = 1.0, backoff_factor: float = 2.0):
+    """
+    Decorator to retry database operations with exponential backoff.
+
+    Args:
+        max_retries: Maximum number of retry attempts
+        initial_delay: Initial delay in seconds before first retry
+        backoff_factor: Multiplier for delay after each retry
+    """
+    def decorator(func: Callable) -> Callable:
+        @wraps(func)
+        def wrapper(*args, **kwargs) -> Any:
+            delay = initial_delay
+            last_exception = None
+
+            for attempt in range(max_retries + 1):
+                try:
+                    return func(*args, **kwargs)
+                except (OperationalError, DBAPIError) as e:
+                    last_exception = e
+                    if attempt < max_retries:
+                        logger.warning(
+                            f"Database operation failed (attempt {attempt + 1}/{max_retries + 1}): {e}. "
+                            f"Retrying in {delay:.1f}s..."
+                        )
+                        time.sleep(delay)
+                        delay *= backoff_factor
+                    else:
+                        logger.error(
+                            f"Database operation failed after {max_retries + 1} attempts: {e}"
+                        )
+
+            # If we get here, all retries failed
+            raise last_exception
+
+        return wrapper
+    return decorator
+
+
 class DatabaseManager:
     """
     Manages database connections and provides utility methods.
@@ -394,32 +439,82 @@ class DatabaseManager:
 
     def __init__(self, database_url: Optional[str] = None):
         """
-        Initialize database connection.
+        Initialize database connection with retry logic.
 
         Args:
             database_url: SQLAlchemy database URL. If None, uses config.DATABASE_URL
         """
         self.database_url = database_url or config.DATABASE_URL
 
-        # Create engine
-        if self.database_url.startswith("sqlite"):
-            # SQLite-specific configuration for thread safety
-            self.engine = create_engine(
-                self.database_url,
-                connect_args={"check_same_thread": False},
-                poolclass=StaticPool,
-            )
-        else:
-            # PostgreSQL or other databases
-            self.engine = create_engine(self.database_url, pool_pre_ping=True)
+        # Create engine with retry logic
+        self.engine = self._create_engine_with_retry()
 
         # Create session factory
         self.SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=self.engine)
 
+    def _create_engine_with_retry(self, max_retries: int = 5):
+        """
+        Create database engine with retry logic and optimized connection pooling.
+
+        Args:
+            max_retries: Maximum number of connection attempts
+
+        Returns:
+            SQLAlchemy engine
+        """
+        delay = 1.0
+        last_exception = None
+
+        for attempt in range(max_retries):
+            try:
+                if self.database_url.startswith("sqlite"):
+                    # SQLite-specific configuration for thread safety
+                    engine = create_engine(
+                        self.database_url,
+                        connect_args={"check_same_thread": False},
+                        poolclass=StaticPool,
+                    )
+                else:
+                    # PostgreSQL or other databases with connection resilience
+                    engine = create_engine(
+                        self.database_url,
+                        pool_pre_ping=True,  # Verify connections before using
+                        pool_size=5,  # Smaller pool for external connections
+                        max_overflow=10,  # Allow burst connections
+                        pool_recycle=300,  # Recycle connections every 5 minutes
+                        pool_timeout=30,  # Wait up to 30s for a connection
+                        connect_args={
+                            "connect_timeout": 10,  # 10s connection timeout
+                            "options": "-c statement_timeout=30000"  # 30s query timeout
+                        }
+                    )
+
+                # Test the connection
+                with engine.connect() as conn:
+                    conn.execute(text("SELECT 1"))
+
+                logger.info(f"Database connection established successfully (attempt {attempt + 1})")
+                return engine
+
+            except Exception as e:
+                last_exception = e
+                if attempt < max_retries - 1:
+                    logger.warning(
+                        f"Database connection failed (attempt {attempt + 1}/{max_retries}): {e}. "
+                        f"Retrying in {delay:.1f}s..."
+                    )
+                    time.sleep(delay)
+                    delay *= 2  # Exponential backoff
+                else:
+                    logger.error(f"Database connection failed after {max_retries} attempts: {e}")
+
+        raise last_exception
+
+    @retry_on_db_error(max_retries=5, initial_delay=1.0)
     def create_tables(self):
-        """Create all database tables."""
+        """Create all database tables with retry logic."""
         Base.metadata.create_all(bind=self.engine)
-        print(f"Database tables created successfully at: {self.database_url}")
+        logger.info(f"Database tables created successfully at: {self.database_url}")
 
     def drop_tables(self):
         """Drop all database tables. Use with caution!"""
@@ -583,8 +678,9 @@ class DatabaseManager:
         finally:
             session.close()
 
+    @retry_on_db_error(max_retries=3, initial_delay=0.5)
     def get_strategy_settings(self, strategy_name: str) -> Optional[StrategySettings]:
-        """Get settings for a specific strategy."""
+        """Get settings for a specific strategy with retry logic."""
         session = self.get_session()
         try:
             settings = session.query(StrategySettings).filter(
