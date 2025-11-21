@@ -21,6 +21,7 @@ Key Features:
 from typing import Dict, List, Optional, Any
 from datetime import datetime, timedelta
 import logging
+import ast
 
 from agents.application.strategy_manager import TradingStrategy
 from agents.application.risk_manager import RiskManager
@@ -230,15 +231,37 @@ class EndgameSweepStrategy(TradingStrategy):
             stats['total_markets'] = len(markets)
             self.logger.info(f"Scanning {len(markets)} tradeable markets")
 
+            # Log first market for debugging
+            if markets:
+                first_market = markets[0]
+                self.logger.info(f"DEBUG: First market type: {type(first_market)}")
+                self.logger.info(f"DEBUG: First market data: {first_market}")
+                if hasattr(first_market, '__dict__'):
+                    self.logger.info(f"DEBUG: Market attributes: {first_market.__dict__}")
+
             for market in markets:
                 try:
-                    # Markets are dicts, not objects - use dict access
-                    market_id = market.get('id', 'unknown')
-                    market_question = market.get('question', 'Unknown question')
+
+                    # Markets are SimpleMarket Pydantic objects with attributes
+                    market_id = getattr(market, 'id', 'unknown')
+                    market_question = getattr(market, 'question', 'Unknown question')
 
                     # Check if market is binary (has clear YES/NO)
-                    # API returns 'outcomePrices' in camelCase, not 'outcome_prices'
-                    outcome_prices = market.get('outcomePrices', [])
+                    # outcome_prices is a STRING that needs parsing
+                    outcome_prices_str = getattr(market, 'outcome_prices', None)
+
+                    if not outcome_prices_str:
+                        stats['not_binary'] += 1
+                        self.logger.debug(f"  ✗ {str(market_id)[:10]}... no outcome_prices attribute")
+                        continue
+
+                    # Parse the string into a list
+                    try:
+                        outcome_prices = ast.literal_eval(outcome_prices_str)
+                    except (ValueError, SyntaxError) as e:
+                        stats['not_binary'] += 1
+                        self.logger.debug(f"  ✗ {str(market_id)[:10]}... failed to parse outcome_prices: {e}")
+                        continue
 
                     if not outcome_prices or len(outcome_prices) != 2:
                         stats['not_binary'] += 1
