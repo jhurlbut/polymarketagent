@@ -15,6 +15,10 @@ Architecture:
 import logging
 import time
 import requests
+import os
+import hmac
+import hashlib
+import base64
 from typing import Dict, List, Optional, Set
 from datetime import datetime, timedelta
 from decimal import Decimal
@@ -66,6 +70,21 @@ class PolymarketWhaleDiscovery:
         # Polymarket CLOB API
         self.clob_api_base = "https://clob.polymarket.com"
 
+        # Load API credentials from environment
+        self.api_key = os.environ.get('POLYMARKET_API_KEY')
+        self.api_secret = os.environ.get('POLYMARKET_API_SECRET')
+        self.api_passphrase = os.environ.get('POLYMARKET_API_PASSPHRASE')
+
+        # Check if we have API credentials
+        self.has_api_creds = all([self.api_key, self.api_secret, self.api_passphrase])
+
+        if not self.has_api_creds:
+            logger.warning(
+                "Polymarket API credentials not found in environment. "
+                "Some endpoints may return 401 errors. "
+                "Run generate_polymarket_api_keys.py to create credentials."
+            )
+
         # Track addresses we've seen
         self.tracked_addresses: Set[str] = set()
 
@@ -81,8 +100,47 @@ class PolymarketWhaleDiscovery:
         logger.info(
             f"Whale Discovery initialized: "
             f"min_trade=${self.min_trade_size_usd:,.0f}, "
-            f"min_volume=${self.min_total_volume_usd:,.0f}"
+            f"min_volume=${self.min_total_volume_usd:,.0f}, "
+            f"auth={'✓ Enabled' if self.has_api_creds else '✗ Disabled'}"
         )
+
+    def _create_auth_headers(self, method: str, path: str, body: str = "") -> Dict[str, str]:
+        """
+        Create authentication headers for Polymarket CLOB API.
+
+        Args:
+            method: HTTP method (GET, POST, etc.)
+            path: API endpoint path
+            body: Request body (for POST requests)
+
+        Returns:
+            Dictionary of authentication headers
+        """
+        if not self.has_api_creds:
+            return {}
+
+        timestamp = str(int(time.time() * 1000))
+
+        # Create signature message
+        message = timestamp + method + path + body
+
+        # Create HMAC signature
+        signature = hmac.new(
+            base64.b64decode(self.api_secret),
+            message.encode('utf-8'),
+            hashlib.sha256
+        ).digest()
+
+        # Encode signature
+        signature_b64 = base64.b64encode(signature).decode('utf-8')
+
+        return {
+            'POLY-ADDRESS': '',  # Not needed for data endpoints
+            'POLY-SIGNATURE': signature_b64,
+            'POLY-TIMESTAMP': timestamp,
+            'POLY-API-KEY': self.api_key,
+            'POLY-PASSPHRASE': self.api_passphrase
+        }
 
     def get_market_trades(
         self,
@@ -91,9 +149,10 @@ class PolymarketWhaleDiscovery:
     ) -> List[Dict]:
         """
         Get recent trades for a specific market token with rate limiting and retry logic.
+        Uses authenticated CLOB API if credentials available.
 
         Args:
-            token_id: Polymarket token ID
+            token_id: Polymarket token ID (condition ID)
             limit: Max number of trades to fetch
 
         Returns:
@@ -104,6 +163,10 @@ class PolymarketWhaleDiscovery:
             'id': token_id,
             'limit': limit
         }
+
+        # Create authentication headers
+        path = f"/trades?id={token_id}&limit={limit}"
+        headers = self._create_auth_headers('GET', path)
 
         # Retry loop with exponential backoff
         for attempt in range(API_RETRY_ATTEMPTS):
@@ -120,7 +183,7 @@ class PolymarketWhaleDiscovery:
                     # Normal rate limiting
                     time.sleep(API_RATE_LIMIT_DELAY)
 
-                response = requests.get(url, params=params, timeout=10)
+                response = requests.get(url, params=params, headers=headers, timeout=10)
 
                 if response.status_code == 200:
                     trades = response.json()
