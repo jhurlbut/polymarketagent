@@ -1,0 +1,9 @@
+# Nixpacks configuration for dashboard deployment
+[phases.setup]
+nixPkgs = ["python310", "postgresql"]
+
+[phases.install]
+cmds = ["pip install -r requirements.txt"]
+
+[start]
+cmd = "streamlit run agents/scripts/python/dashboard.py --server.port=$PORT --server.address=0.0.0.0 --server.headless=true --server.enableCORS=false --server.enableXsrfProtection=true"
