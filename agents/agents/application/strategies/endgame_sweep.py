@@ -232,18 +232,22 @@ class EndgameSweepStrategy(TradingStrategy):
 
             for market in markets:
                 try:
-                    market_id = getattr(market, 'market_id', 'unknown')
-                    market_question = getattr(market, 'question', 'Unknown question')
+                    # Markets are dicts, not objects - use dict access
+                    market_id = market.get('id', 'unknown')
+                    market_question = market.get('question', 'Unknown question')
 
                     # Check if market is binary (has clear YES/NO)
-                    if not hasattr(market, 'outcome_prices') or len(market.outcome_prices) != 2:
+                    # API returns 'outcomePrices' in camelCase, not 'outcome_prices'
+                    outcome_prices = market.get('outcomePrices', [])
+
+                    if not outcome_prices or len(outcome_prices) != 2:
                         stats['not_binary'] += 1
-                        self.logger.debug(f"  ✗ {market_id[:10]}... not binary (has {len(getattr(market, 'outcome_prices', []))} outcomes)")
+                        self.logger.debug(f"  ✗ {str(market_id)[:10]}... not binary (has {len(outcome_prices)} outcomes)")
                         continue
 
                     # Get YES and NO prices
-                    yes_price = market.outcome_prices[0]
-                    no_price = market.outcome_prices[1]
+                    yes_price = float(outcome_prices[0])
+                    no_price = float(outcome_prices[1])
 
                     self.logger.debug(f"  → {market_id[:10]}... YES={yes_price:.3f}, NO={no_price:.3f}: {market_question[:50]}...")
 
@@ -282,8 +286,8 @@ class EndgameSweepStrategy(TradingStrategy):
                             if confidence >= self.min_confidence:
                                 stats['passed_filters'] += 1
                                 opportunity = {
-                                    "market_id": market.market_id,
-                                    "market_question": getattr(market, 'question', 'Unknown'),
+                                    "market_id": market_id,
+                                    "market_question": market_question,
                                     "side": "YES",
                                     "entry_price": yes_price,
                                     "confidence": confidence,
@@ -297,7 +301,7 @@ class EndgameSweepStrategy(TradingStrategy):
                                 }
                                 opportunities.append(opportunity)
                                 self.logger.info(
-                                    f"    ✓✓ OPPORTUNITY: {market.market_id} - {opportunity['reasoning']}"
+                                    f"    ✓✓ OPPORTUNITY: {market_id} - {opportunity['reasoning']}"
                                 )
                             else:
                                 stats['low_confidence'] += 1
@@ -335,8 +339,8 @@ class EndgameSweepStrategy(TradingStrategy):
                             if confidence >= self.min_confidence:
                                 stats['passed_filters'] += 1
                                 opportunity = {
-                                    "market_id": market.market_id,
-                                    "market_question": getattr(market, 'question', 'Unknown'),
+                                    "market_id": market_id,
+                                    "market_question": market_question,
                                     "side": "NO",
                                     "entry_price": no_price,
                                     "confidence": confidence,
@@ -350,7 +354,7 @@ class EndgameSweepStrategy(TradingStrategy):
                                 }
                                 opportunities.append(opportunity)
                                 self.logger.info(
-                                    f"    ✓✓ OPPORTUNITY: {market.market_id} - {opportunity['reasoning']}"
+                                    f"    ✓✓ OPPORTUNITY: {market_id} - {opportunity['reasoning']}"
                                 )
                             else:
                                 stats['low_confidence'] += 1
