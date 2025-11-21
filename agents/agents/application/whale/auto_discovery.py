@@ -125,8 +125,10 @@ class PolymarketWhaleDiscovery:
         message = timestamp + method + path + body
 
         # Create HMAC signature
+        # API secret is hex-encoded, convert to bytes
+        secret_bytes = bytes.fromhex(self.api_secret)
         signature = hmac.new(
-            base64.b64decode(self.api_secret),
+            secret_bytes,
             message.encode('utf-8'),
             hashlib.sha256
         ).digest()
