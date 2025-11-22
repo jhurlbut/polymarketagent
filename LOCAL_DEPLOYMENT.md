@@ -12,6 +12,26 @@ Run the entire Polymarket trading system on your local machine - **no cloud cost
 
 ---
 
+## Step 0: Clone the Repository
+
+If you haven't already cloned the repository, start here:
+
+```bash
+# Clone the repository
+git clone https://github.com/jhurlbut/polymarketagent.git
+
+# Navigate into the project directory
+cd polymarketagent
+```
+
+If you already have the repository cloned, just navigate to it:
+
+```bash
+cd /Users/jbass/polymarketagent
+```
+
+---
+
 ## Step 1: Set Up Local Postgres Database
 
 ### Option A: Using Docker (Recommended)
